@@ -30,14 +30,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.SetProperty
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputDirectory
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.Internal
-import org.gradle.api.tasks.Optional
-import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.*
 
 class DockerBuildImage extends AbstractDockerRemoteApiTask implements RegistryCredentialsAware {
 
@@ -46,6 +39,7 @@ class DockerBuildImage extends AbstractDockerRemoteApiTask implements RegistryCr
      */
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
+    @Optional
     final DirectoryProperty inputDir = project.objects.directoryProperty()
 
     /**
@@ -57,6 +51,10 @@ class DockerBuildImage extends AbstractDockerRemoteApiTask implements RegistryCr
     @Optional
     final RegularFileProperty dockerFile = project.objects.fileProperty()
 
+
+    @Input
+    @Optional
+    final Property<URI> inputUrl = project.objects.property(URI)
     /**
      * Tags for image.
      */
@@ -181,7 +179,9 @@ class DockerBuildImage extends AbstractDockerRemoteApiTask implements RegistryCr
     final Property<String> imageId = project.objects.property(String)
 
     DockerBuildImage() {
-        inputDir.set(project.layout.buildDirectory.dir('docker'))
+        if(inputUrl.getOrNull() != null) {
+            inputDir.set(project.layout.buildDirectory.dir('docker'))
+        }
         tags.empty()
         noCache.set(false)
         remove.set(false)
@@ -209,15 +209,25 @@ class DockerBuildImage extends AbstractDockerRemoteApiTask implements RegistryCr
 
     @Override
     void runRemoteCommand() {
-        logger.quiet "Building image using context '${inputDir.get().asFile}'."
+        if(inputUrl.getOrNull() != null) {
+            logger.quiet "Building image using context '${inputUrl.get()}'."
+        } else if(inputDir.getOrNull() != null) {
+            logger.quiet "Building image using context '${inputDir.get().asFile}'."
+        }
         BuildImageCmd buildImageCmd
+
+        if(inputUrl.getOrNull() != null) {
+            logger.quiet "Using remote '${inputUrl.get()}'"
+            buildImageCmd = dockerClient.buildImageCmd()
+                    .withRemote(inputUrl.get())
+        }
 
         if (dockerFile.getOrNull()) {
             logger.quiet "Using Dockerfile '${dockerFile.get().asFile}'"
             buildImageCmd = dockerClient.buildImageCmd()
                     .withBaseDirectory(inputDir.get().asFile)
                     .withDockerfile(dockerFile.get().asFile)
-        } else {
+        } else if(inputDir.getOrNull() != null) {
             buildImageCmd = dockerClient.buildImageCmd(inputDir.get().asFile)
         }
 

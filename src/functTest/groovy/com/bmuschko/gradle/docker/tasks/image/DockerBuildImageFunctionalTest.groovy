@@ -59,6 +59,58 @@ class DockerBuildImageFunctionalTest extends AbstractGroovyDslFunctionalTest {
         result.output.contains("Created image with ID")
     }
 
+    def "can build image from tar context"() {
+        buildFile << imageCreation()
+        buildFile << """
+            def httpFileServer = null
+            def randomPort = Math.abs(new Random().nextInt() % (65535 - 1025)) + 1025
+            
+            task tarDockerBuildContext(type: Tar) {
+                archiveName = 'docker-build.tar'
+                into ('/'){
+                    from projectDir
+                    include '*'
+                }
+            
+                destinationDir  file('build/tar')
+                extension 'tar'
+                compression = Compression.GZIP
+            }
+            
+            task startHttpFileServer {
+                doFirst{
+                    File root = new File('build/tar')
+                    def factory = new SimpleHttpFileServerFactory()
+                    httpFileServer = factory.start(root, randomPort)
+                    println "HTTP file Server started in directory " + httpFileServer.getContentRoot()
+                }
+            }
+            startHttpFileServer.dependsOn('tarDockerBuildContext')
+            
+            task stopHttpFileServer {
+                doLast{
+                    if (httpFileServer != null) {
+                        println 'Stopping Server..'
+                        httpFileServer.stop()
+                    }
+                }
+            }
+            
+            buildImage {
+                inputUrl = new URI("http://localhost:" + randomPort + "/docker-build.tar")
+            }
+            buildImage.dependsOn('startHttpFileServer')
+            buildImage.finalizedBy('stopHttpFileServer')
+
+        """
+
+        when:
+        BuildResult result = build('buildImage')
+
+        then:
+        result.output.contains("Created image with ID")
+    }
+
     @Unroll
     def "can build image with labels"(String gradleTaskDefinition) {
         buildFile << gradleTaskDefinition
